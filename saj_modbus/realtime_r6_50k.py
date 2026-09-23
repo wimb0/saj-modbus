@@ -11,7 +11,7 @@ Power is UInt32 (0x601D), QPower is Int32 (0x601F), PV strings go to PV12.
 
 from __future__ import annotations
 
-from modbus_connection.model import Component, gauge, integer, uint32
+from modbus_connection.model import Component, integer, uint32
 
 from .fields import DateTimeField
 from .measure import mgauge, minteger, muint32

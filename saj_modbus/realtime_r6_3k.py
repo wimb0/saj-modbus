@@ -7,7 +7,7 @@ Int16/UInt16 column; scales follow the multiplier column.
 
 from __future__ import annotations
 
-from modbus_connection.model import Component, gauge, integer, uint32
+from modbus_connection.model import Component, integer, uint32
 
 from .fields import DateTimeField
 from .measure import mgauge, minteger, muint32

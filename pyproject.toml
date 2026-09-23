@@ -1,6 +1,6 @@
 [project]
 name = "saj-modbus"
-version = "0.4.0"
+version = "0.4.1"
 description = "Read (and control) SAJ PLUS / R5 / R6 solar inverters over Modbus. C6 excluded. Built from the SAJ Modbus PDFs."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -11,7 +11,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cli = []
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -20,3 +20,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["saj_modbus*"]
+
+[tool.ruff.lint.per-file-ignores]
+# naive datetimes in tests are vectors, not clock handling
+"tests/**" = ["DTZ001"]

@@ -2,18 +2,18 @@
 
 from datetime import datetime
 
+from saj_modbus.controls import encode_rs485_ate, power_limit_to_register_101c
 from saj_modbus.faults import (
+    CLASSIC_FAULT_MESSAGES,
+    R6_3K_HFAULT,
+    R6_3K_MFAULT,
     decode_plus_r5_faults,
     decode_r6_3k_faults,
     translate_code_to_messages,
     translate_mask_to_messages,
-    CLASSIC_FAULT_MESSAGES,
-    R6_3K_HFAULT,
-    R6_3K_MFAULT,
 )
 from saj_modbus.fields import decode_clock_words, encode_clock_words
 from saj_modbus.models import describe_plus_r5_mode, describe_r6_3k_mode
-from saj_modbus.controls import encode_rs485_ate, power_limit_to_register_101c
 
 
 def test_clock_roundtrip():

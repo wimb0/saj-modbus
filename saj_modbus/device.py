@@ -18,7 +18,7 @@ Polling and the optional-block pattern build on upstream
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from modbus_connection import (
@@ -61,12 +61,12 @@ from .models import (
 from .realtime_plus_r5 import PlusR5Realtime
 from .realtime_r6_3k import (
     R6_3KBattery,
+    R6_3KBusBatPv,
     R6_3KEnergy,
     R6_3KFlows,
     R6_3KGrid,
     R6_3KHeader,
     R6_3KInv,
-    R6_3KBusBatPv,
     R6_3KOutput,
     R6_3KStrings,
 )
@@ -152,7 +152,7 @@ class SajInverter(Device):
 
     # -- constructors ------------------------------------------------------
     @classmethod
-    def tcp(cls, host: str, port: int = 502, slave_id: int = UNIT_ID) -> "SajInverter":
+    def tcp(cls, host: str, port: int = 502, slave_id: int = UNIT_ID) -> SajInverter:
         """Build an inverter over TCP (keeps the connection open)."""
         conn = create_tcp_connection(host, port)
         inv = cls(conn.for_unit(slave_id))
@@ -165,7 +165,7 @@ class SajInverter(Device):
         device: str,
         baudrate: int = 9600,
         slave_id: int = UNIT_ID,
-    ) -> "SajInverter":
+    ) -> SajInverter:
         """Build an inverter over serial RTU (or serial-over-network URL)."""
         conn = create_serial_connection(device, baudrate)
         inv = cls(conn.for_unit(slave_id))
@@ -517,5 +517,10 @@ class SajInverter(Device):
         return self._power_limit
 
     async def async_set_datetime(self, value: datetime | None = None) -> None:
-        """Sync the inverter clock (0x8020)."""
-        await self.legacy.write("datetime", value or datetime.now())
+        """Sync the inverter clock (0x8020).
+
+        Defaults to the machine-local wall time (the inverter keeps no zone);
+        ``.astimezone()`` preserves that across timezones where a bare UTC
+        ``now()`` would shift the wall clock.
+        """
+        await self.legacy.write("datetime", value or datetime.now(timezone.utc).astimezone())

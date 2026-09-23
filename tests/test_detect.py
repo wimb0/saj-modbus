@@ -4,9 +4,9 @@ import pytest
 
 from saj_modbus.models import (
     C6_DEVTYPES,
+    UnsupportedInverterError,
     detect_family,
     register_devtype,
-    UnsupportedInverterError,
 )
 
 

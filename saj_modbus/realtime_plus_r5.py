@@ -7,7 +7,7 @@ single-poll behaviour of your component is preserved (76 regs < 125 limit).
 
 from __future__ import annotations
 
-from modbus_connection.model import Component, gauge, integer, uint32
+from modbus_connection.model import Component, integer, uint32
 
 from .fields import DateTimeField
 from .measure import mgauge, minteger, muint32

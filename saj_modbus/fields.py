@@ -70,7 +70,7 @@ def decode_bcd_clock_words(words: list[int]) -> datetime | None:
         return None
     assert None not in parts  # for typing; checked above
     try:
-        return datetime(
+        return datetime(  # noqa: DTZ001 # naive by design: the inverter reports no zone
             year=year_high * 100 + year_low,  # type: ignore[operator]
             month=month,  # type: ignore[arg-type]
             day=day,  # type: ignore[arg-type]
@@ -92,7 +92,7 @@ def decode_history_time_words(words: list[int]) -> datetime | None:
     """
     try:
         year = words[0]
-        candidate = datetime(
+        candidate = datetime(  # noqa: DTZ001 # naive by design, see decode_history_time_words
             year=year,
             month=words[1] >> 8,
             day=words[1] & 0xFF,

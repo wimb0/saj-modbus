@@ -20,7 +20,7 @@ def power_limit_to_register_101c(percent: float) -> int:
     """Percent (0-110) -> raw 0x101C/0x340B word (0-1100)."""
     if not 0 <= percent <= 110:
         raise ValueError(f"power limit must be 0-110 %, got {percent}")
-    return int(round(percent * 10))
+    return round(percent * 10)
 
 
 def power_limit_from_register_101c(raw: int) -> float:

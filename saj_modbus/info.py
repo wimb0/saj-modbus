@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from modbus_connection.model import Component, gauge, integer, string
+from modbus_connection.model import Component, integer, string
 
-from .measure import mgauge, minteger
+from .measure import mgauge
 
 
 class InverterInfo(Component):

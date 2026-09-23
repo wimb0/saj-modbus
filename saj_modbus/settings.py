@@ -74,7 +74,7 @@ class R6_3KPower(Component):
 
 # Pure helpers live in controls.py (importable without modbus-connection);
 # re-exported here for convenience.
-from .controls import (  # noqa: E402
+from .controls import (
     encode_rs485_ate,
     power_limit_from_register_101c,
     power_limit_to_register_101c,
@@ -82,10 +82,10 @@ from .controls import (  # noqa: E402
 
 __all__ = [
     "ClassicSettings",
-    "R6_3KSettings",
     "LegacySettings",
     "PlusR5Power",
     "R6_3KPower",
+    "R6_3KSettings",
     "encode_rs485_ate",
     "power_limit_from_register_101c",
     "power_limit_to_register_101c",

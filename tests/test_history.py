@@ -47,7 +47,7 @@ def _install_model_stub() -> None:
 
 _install_model_stub()
 
-from saj_modbus import history  # noqa: E402
+from saj_modbus import history
 
 
 def _addr(field) -> int:

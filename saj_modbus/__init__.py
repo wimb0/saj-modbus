@@ -10,9 +10,9 @@ from .controls import (
 )
 from .faults import decode_plus_r5_faults, decode_r6_3k_faults
 from .models import (
+    C6_DEVTYPES,
     DEVTYPE_FAMILY,
     DEVTYPE_MODELS,
-    C6_DEVTYPES,
     Family,
     UnsupportedInverterError,
     detect_family,
@@ -46,4 +46,4 @@ __all__ = [
     "register_devtype",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"

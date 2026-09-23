@@ -19,7 +19,7 @@ Nothing here is polled — read it through
 from __future__ import annotations
 
 from datetime import datetime
-from functools import lru_cache
+from functools import cache
 from typing import Any
 
 from modbus_connection.model import Component, RegisterField
@@ -62,7 +62,7 @@ def _monthly_energy_class() -> type[Component]:
     return type("HistoryMonthlyEnergy", (Component,), namespace)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _fault_block_class(first: int, last: int) -> type[Component]:
     """One fault window; slot i lives at 0x0B00+(i-1)*10.
 
