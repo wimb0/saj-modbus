@@ -23,6 +23,7 @@ from typing import Any
 
 from modbus_connection.model import Component, RegisterField
 
+from .faults import decode_plus_r5_faults
 from .fields import decode_bcd_clock_words
 from .measure import mgauge, muint32
 
@@ -88,3 +89,26 @@ FAULT_BLOCKS: tuple[tuple[int, int, type[Component]], ...] = (
     (51, 75, HistoryFaults051_075),
     (76, 100, HistoryFaults076_100),
 )
+
+
+def build_fault_history(
+    slots: dict[int, tuple[datetime | None, int | None, int | None, int | None]],
+) -> list[dict[str, Any]]:
+    """Result list from per-slot readings; empty slots skipped, ordered by slot.
+
+    Pure (no Modbus): ``slots`` maps slot number to ``(time, word0, word1,
+    word2)`` with ``None`` for sentinel/unread words.
+    """
+    out: list[dict[str, Any]] = []
+    for slot in sorted(slots):
+        time, word0, word1, word2 = slots[slot]
+        faults = decode_plus_r5_faults(word0, word1, word2)
+        if time is not None or faults:
+            out.append(
+                {
+                    "slot": slot,
+                    "time": time.isoformat() if time is not None else None,
+                    "faults": faults,
+                }
+            )
+    return out

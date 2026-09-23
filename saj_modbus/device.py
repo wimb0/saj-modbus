@@ -43,6 +43,8 @@ from .history import (
     FAULT_BLOCKS,
     HistoryDailyEnergy,
     HistoryMonthlyEnergy,
+    _fault_block_class,
+    build_fault_history,
 )
 from .info import InverterInfo
 from .models import (
@@ -386,42 +388,91 @@ class SajInverter:
         """Read the energy ledger: daily (3 months) + monthly/yearly totals.
 
         Slow (a few hundred registers) — call on demand, not every poll.
+        A refused block is skipped; if neither answers the inverter does not
+        serve history at all and this raises.
         """
         self._require_history_family()
-        await self.history_daily.async_update()
-        await self.history_monthly.async_update()
-        return {
-            "daily_kwh": self._plain(self.history_daily),
-            "monthly_kwh": self._plain(self.history_monthly),
-        }
+        out: dict[str, dict[str, Any]] = {}
+        for key, comp in (
+            ("daily_kwh", self.history_daily),
+            ("monthly_kwh", self.history_monthly),
+        ):
+            try:
+                await comp.async_update()
+            except _NOT_SERVED:
+                continue
+            out[key] = self._plain(comp)
+        if not out:
+            raise UnsupportedInverterError(
+                self.devtype,
+                "energy history not served by this inverter (0x0A00 refused)",
+            )
+        return out
+
+    async def _read_fault_slots_fallback(
+        self,
+        first: int,
+        last: int,
+        slots: dict[int, tuple[datetime | None, int | None, int | None, int | None]],
+    ) -> int:
+        """Read one 25-slot window slot by slot after its block read refused.
+
+        Some firmware serves fewer than the documented 100 slots and rejects
+        any read covering the missing tail, so fall back to 10-register reads
+        and keep whatever answers. Aborts on 3 consecutive timeouts (dead link
+        rather than missing registers).
+        """
+        count = 0
+        timeouts = 0
+        for slot in range(first, last + 1):
+            comp = _fault_block_class(slot, slot)(self._unit)
+            try:
+                await comp.async_update()
+            except _NOT_SERVED:
+                continue
+            except ModbusTimeoutError:
+                timeouts += 1
+                if timeouts >= 3:
+                    raise
+                continue
+            timeouts = 0
+            slots[slot] = (
+                getattr(comp, f"herror_time{slot:03d}"),
+                getattr(comp, f"herror{slot:03d}_0"),
+                getattr(comp, f"herror{slot:03d}_1"),
+                getattr(comp, f"herror{slot:03d}_2"),
+            )
+            count += 1
+        return count
 
     async def async_read_fault_history(self) -> list[dict[str, Any]]:
         """Read the 100-slot fault record; empty slots are skipped.
 
-        Slow (~1000 registers over several reads) — call on demand.
+        Slow (~1000 registers over several reads) — call on demand. Windows
+        the inverter refuses fall back to slot-by-slot reads; if nothing
+        answers at all this raises instead of returning a lying empty list.
         """
         self._require_history_family()
-        for _, _, block in self.history_faults:
-            await block.async_update()
-        blocks = {slot: block for first, last, block in self.history_faults for slot in range(first, last + 1)}
-        out: list[dict[str, Any]] = []
-        for slot in range(1, 101):
-            block = blocks[slot]
-            time = getattr(block, f"herror_time{slot:03d}")
-            faults = decode_plus_r5_faults(
-                getattr(block, f"herror{slot:03d}_0"),
-                getattr(block, f"herror{slot:03d}_1"),
-                getattr(block, f"herror{slot:03d}_2"),
-            )
-            if time is not None or faults:
-                out.append(
-                    {
-                        "slot": slot,
-                        "time": time.isoformat() if time is not None else None,
-                        "faults": faults,
-                    }
+        slots: dict[int, tuple[datetime | None, int | None, int | None, int | None]] = {}
+        for first, last, block in self.history_faults:
+            try:
+                await block.async_update()
+            except _NOT_SERVED:
+                await self._read_fault_slots_fallback(first, last, slots)
+                continue
+            for slot in range(first, last + 1):
+                slots[slot] = (
+                    getattr(block, f"herror_time{slot:03d}"),
+                    getattr(block, f"herror{slot:03d}_0"),
+                    getattr(block, f"herror{slot:03d}_1"),
+                    getattr(block, f"herror{slot:03d}_2"),
                 )
-        return out
+        if not slots:
+            raise UnsupportedInverterError(
+                self.devtype,
+                "fault history not served by this inverter (0x0B00 refused)",
+            )
+        return build_fault_history(slots)
 
     # -- snapshot ----------------------------------------------------------
     def snapshot(self) -> dict[str, Any]:

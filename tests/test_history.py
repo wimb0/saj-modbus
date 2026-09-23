@@ -73,6 +73,21 @@ def test_bcd_clock_valid():
     )
 
 
+def test_build_fault_history_skips_empty_and_orders():
+    slots = {
+        3: (None, 0, 0, 0),
+        1: (datetime(2026, 3, 4, 11, 2, 0), 0, 0, 0),
+        2: (None, 0x00080000, 0, 0),
+    }
+    out = history.build_fault_history(slots)
+    assert [entry["slot"] for entry in out] == [1, 2]
+    assert out[0]["time"] == "2026-03-04T11:02:00"
+    assert out[0]["faults"] == []
+    assert out[1]["time"] is None
+    assert out[1]["faults"] == ["Code 48: Master Fan4 Error"]
+    assert history.build_fault_history({}) == []
+
+
 def test_bcd_clock_empty_slots_are_none():
     assert decode_bcd_clock_words([0, 0, 0, 0]) is None
     assert decode_bcd_clock_words([0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF]) is None
