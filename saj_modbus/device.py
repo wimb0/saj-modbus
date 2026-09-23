@@ -4,29 +4,32 @@ C6 is NOT supported (Modbus control is known to cause issues on those units)
 and fails closed at setup.
 
 Detection is driven only by the Type register (info ``0x8F00``) that the
-inverter itself reports: ``async_setup`` reads the info block, maps the
-reported type via :func:`models.detect_family`, and polls that family's map.
-There is no address probing — polling the wrong family's registers is what
-mis-controls hardware. Unknown or unreadable types raise
+inverter itself reports: setup reads the info block, maps the reported type
+via :func:`models.detect_family`, and polls that family's map. There is no
+address probing — polling the wrong family's registers is what mis-controls
+hardware. Unknown or unreadable types raise
 :class:`models.UnsupportedInverterError` instead of guessing.
+
+Polling and the optional-block pattern build on upstream
+:mod:`modbus_connection.model.device` (``Device`` / ``async_poll`` /
+``read_optional``) rather than reimplementing them.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from modbus_connection import (
     IllegalDataAddressError,
     IllegalFunctionError,
-    ModbusConnectionError,
     ModbusError,
     ModbusTimeoutError,
     ModbusUnit,
 )
-from modbus_connection.model import Component, ComponentGroup
+from modbus_connection.model import Component
+from modbus_connection.model.device import Device, UpdateReport, read_optional
 from modbus_connection.tmodbus import ModbusConnection
 
 from .connection import (
@@ -46,7 +49,7 @@ from .history import (
     _fault_block_class,
     build_fault_history,
 )
-from .info import InverterInfo
+from .info import InverterInfo, decode_rs485_ate
 from .models import (
     DEVTYPE_MODELS,
     Family,
@@ -80,21 +83,18 @@ _LOGGER = logging.getLogger(__name__)
 
 UNIT_ID = DEFAULT_SLAVE_ID
 
-# Refusals meaning "not in this inverter's map". Anything else means the
-# registers exist and the read itself failed, so it propagates.
+# Refusals meaning "not in this inverter's map", for the on-demand history
+# reads below. Setup/poll refusals go through upstream read_optional instead.
 _NOT_SERVED = (IllegalFunctionError, IllegalDataAddressError)
 
 
-@dataclass(frozen=True)
-class UpdateReport:
-    """What one poll refreshed."""
-
-    updated: set[str] = field(default_factory=set)
-    failed: dict[str, ModbusError] = field(default_factory=dict)
-
-    @property
-    def complete(self) -> bool:
-        return not self.failed
+def _plain_items(comp: Component) -> dict[str, Any]:
+    """Declared register fields of one component, datetimes as ISO strings."""
+    out: dict[str, Any] = {}
+    for name in getattr(type(comp), "declared_fields", ()):
+        value = getattr(comp, name)
+        out[name] = value.isoformat() if isinstance(value, datetime) else value
+    return out
 
 
 def _component_snapshot(components: list[tuple[str, Component]]) -> dict[str, Any]:
@@ -106,29 +106,16 @@ def _component_snapshot(components: list[tuple[str, Component]]) -> dict[str, An
     """
     out: dict[str, Any] = {}
     for prefix, comp in components:
-        declared = getattr(type(comp), "declared_fields", None)
-        names = list(declared) if declared else [
-            n for n in dir(comp) if not n.startswith("_")
-        ]
-        for name in names:
-            try:
-                value = getattr(comp, name)
-            except Exception:  # noqa: BLE001 - one bad field must not kill a dump
-                continue
-            if callable(value):
-                continue
-            if isinstance(value, datetime):
-                out[f"{prefix}.{name}"] = value.isoformat()
-            elif isinstance(value, (int, float, str, bool)) or value is None:
-                out[f"{prefix}.{name}"] = value
+        for name, value in _plain_items(comp).items():
+            out[f"{prefix}.{name}"] = value
     return out
 
 
-class SajInverter:
+class SajInverter(Device):
     """One SAJ inverter on a Modbus unit, family detected from its type."""
 
     def __init__(self, unit: ModbusUnit) -> None:
-        self._unit = unit
+        super().__init__(unit)
         self.info = InverterInfo(unit)
         # PLUS/R5
         self.plus_r5 = PlusR5Realtime(unit)
@@ -162,7 +149,6 @@ class SajInverter:
         self.absent: frozenset[str] = frozenset()
         self._polled: list[str] | None = None
         self._power_limit: float = 110.0
-        self._readable: ComponentGroup | None = None
 
     # -- constructors ------------------------------------------------------
     @classmethod
@@ -269,9 +255,9 @@ class SajInverter:
     def faultmsg(self) -> str:
         return fault_messages_to_state(self.fault_messages)
 
-    # -- setup / polling ---------------------------------------------------
-    async def async_setup(self) -> Family:
-        """Detect the family from the reported type; learn optional blocks.
+    # -- setup / polling (upstream Device pattern) -----------------------------
+    async def _async_setup(self) -> None:
+        """Read the static info, detect the family, learn optional blocks.
 
         The info block is required: without the reported type there is no
         safe family to pick, so an unreadable info block raises instead of
@@ -295,12 +281,9 @@ class SajInverter:
 
         absent = set()
         if self.family == "plus_r5":
-            for name, comp in (("power", self.power),):
-                try:
-                    await comp.async_update()
-                except _NOT_SERVED as ex:
-                    absent.add(name)
-                    _LOGGER.info("Optional block %s not served (%s)", name, ex)
+            if await read_optional(self.power) is None:
+                absent.add("power")
+                _LOGGER.info("Optional block power not served; switch unavailable")
             self._polled = [n for n in ("plus_r5", "power") if n not in absent]
         elif self.family == "r6_3k":
             # Battery/strings/flows are optional on some firmware; the header
@@ -316,43 +299,23 @@ class SajInverter:
                 "r6_3k_power",
             ]
             for name in optional:
-                try:
-                    await getattr(self, name).async_update()
-                except _NOT_SERVED:
+                if await read_optional(getattr(self, name)) is None:
                     absent.add(name)
             self._polled = core + [n for n in optional if n not in absent]
         else:
             self._polled = ["r6_50k_head", "r6_50k_pv"]
 
         self.absent = frozenset(absent)
-        readable: list[Component] = [getattr(self, n) for n in (self._polled or ())]
-        readable.insert(0, self.info)
-        self._readable = ComponentGroup(self._unit, readable)
+
+    async def async_setup(self) -> Family:
+        """Detect the family (idempotent; failed setups retry next call)."""
+        await self.async_ensure_setup()
+        assert self.family is not None
         return self.family
 
     async def async_update(self) -> UpdateReport:
         """Poll the detected family's components (setup first if needed)."""
-        if self._polled is None or self.family is None:
-            await self.async_setup()
-        updated: set[str] = set()
-        failed: dict[str, ModbusError] = {}
-        for name in self._polled or ():
-            comp: Component = getattr(self, name)
-            try:
-                await comp.async_update(notify=False)
-            except ModbusConnectionError:
-                raise
-            except ModbusTimeoutError as err:
-                if not updated and not failed:
-                    raise
-                failed[name] = err
-            except ModbusError as err:
-                failed[name] = err
-            else:
-                updated.add(name)
-        for name in updated:
-            getattr(self, name).notify()
-        return UpdateReport(updated, failed)
+        return await self.async_poll(self._polled or ())
 
     async def async_close(self) -> None:
         conn: ModbusConnection | None = getattr(self, "_connection", None)
@@ -371,11 +334,7 @@ class SajInverter:
     @staticmethod
     def _plain(comp: Component) -> dict[str, Any]:
         """Declared fields of one component, datetimes as ISO strings."""
-        out: dict[str, Any] = {}
-        for name in getattr(type(comp), "declared_fields", ()):
-            value = getattr(comp, name)
-            out[name] = value.isoformat() if isinstance(value, datetime) else value
-        return out
+        return _plain_items(comp)
 
     async def async_read_energy_history(self) -> dict[str, dict[str, Any]]:
         """Read the energy ledger: daily (3 months) + monthly/yearly totals.
@@ -418,7 +377,7 @@ class SajInverter:
         count = 0
         timeouts = 0
         for slot in range(first, last + 1):
-            comp = _fault_block_class(slot, slot)(self._unit)
+            comp = _fault_block_class(slot, slot)(self.modbus_unit)
             try:
                 await comp.async_update()
             except _NOT_SERVED:
@@ -444,6 +403,9 @@ class SajInverter:
         Slow (~1000 registers over several reads) — call on demand. Windows
         the inverter refuses fall back to slot-by-slot reads; if nothing
         answers at all this raises instead of returning a lying empty list.
+
+        Timestamps are naive datetimes (the inverter reports no zone);
+        contrast the timezone-aware realtime clock.
         """
         self._require_history_family()
         slots: dict[int, tuple[datetime | None, int | None, int | None, int | None]] = {}
@@ -496,6 +458,7 @@ class SajInverter:
         out["devtype"] = self.devtype
         out["model"] = self.model_name
         out["serial"] = self.serial_number
+        out["rs485"] = decode_rs485_ate(self.info.rs485_ate)
         out["status"] = self.status
         out["mpvmode"] = self.mpvmode_raw
         out["faults"] = self.fault_messages

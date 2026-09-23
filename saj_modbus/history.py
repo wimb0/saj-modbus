@@ -19,6 +19,7 @@ Nothing here is polled — read it through
 from __future__ import annotations
 
 from datetime import datetime
+from functools import lru_cache
 from typing import Any
 
 from modbus_connection.model import Component, RegisterField
@@ -61,8 +62,14 @@ def _monthly_energy_class() -> type[Component]:
     return type("HistoryMonthlyEnergy", (Component,), namespace)
 
 
+@lru_cache(maxsize=None)
 def _fault_block_class(first: int, last: int) -> type[Component]:
-    """One 25-slot fault window; slot i lives at 0x0B00+(i-1)*10."""
+    """One fault window; slot i lives at 0x0B00+(i-1)*10.
+
+    Cached: the per-slot fallback builds one class per slot per read, and
+    classes are stateless blueprints (instances hold the unit), so sharing
+    them across reads and inverters is safe.
+    """
     namespace: dict[str, Any] = {}
     for i in range(first, last + 1):
         base = 0x0B00 + (i - 1) * 10

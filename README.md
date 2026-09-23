@@ -76,7 +76,9 @@ total), so they stay out of the poll loop; other families raise
 `UnsupportedInverterError`. Firmware that serves fewer than the documented
 100 fault slots (or none) is handled: refused windows fall back to
 slot-by-slot reads, and a fully unserved area raises instead of returning
-a lying empty list.
+a lying empty list. Fault timestamps are naive local-time datetimes (the
+inverter reports no time zone); the realtime clock (`realtime.datetime`) is
+timezone-aware.
 
 Fault text tables live in `saj_modbus/faults.py` (classic 81-code map,
 2022 unified PLUS/R5/R6 map, and R6-3K bit-tag maps for
