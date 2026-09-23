@@ -3,7 +3,13 @@
 All notable changes to `saj-modbus` are recorded here. Dates are release dates
 of the corresponding zip drops / git tags.
 
-## 0.7.0 — 2026-09-23
+## 0.8.0 — 2026-09-23
+
+- Energy-history blocks and fault-history windows read concurrently
+  (link still serializes); `--history` wall time drops ~3-4x.
+- CLI reports expected failures (`error: …` on stderr, exit 2) instead of
+  tracebacks: dead links, refused units, bad `--raw` values.
+- Removed the `_plain` one-line indirection (`_plain_items` used directly).
 
 - SubType (`0x8F01`) decodes as rated watts (verified: 2500 = 2.5 kW):
   `SajInverter.rated_power`,   `snapshot["rated_power_w"]`, and power-suffixed `model_name`

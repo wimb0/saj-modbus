@@ -5,10 +5,51 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
+
+from modbus_connection import ModbusError
 
 from .connection import DEFAULT_PORT, DEFAULT_SLAVE_ID, MODBUS_TIMEOUT
 from .device import SajInverter
 from .models import UnsupportedInverterError
+
+
+class _CliError(Exception):
+    """Expected CLI failure (bad input, dead link, unsupported unit)."""
+
+
+async def _dump(inv: SajInverter, args: argparse.Namespace) -> dict:
+    """Run the requested reads; raises _CliError for expected failures."""
+    snap: dict = {}
+    try:
+        await inv.async_setup()
+        await inv.async_update()
+    except UnsupportedInverterError as ex:
+        if not args.raw:
+            raise
+        snap["setup_error"] = str(ex)
+    else:
+        snap = inv.snapshot()
+        if args.history:
+            try:
+                snap["history"] = {
+                    "energy": await inv.async_read_energy_history(),
+                    "faults": await inv.async_read_fault_history(),
+                }
+            except UnsupportedInverterError as ex:
+                snap["history_error"] = str(ex)
+    if args.raw:
+        try:
+            address = int(args.raw[0], 0)
+            count = int(args.raw[1], 0)
+        except ValueError:
+            raise _CliError(f"invalid --raw ADDRESS/COUNT: {args.raw}") from None
+        words = await inv.async_read_raw_words(address, count)
+        snap["raw"] = {
+            "address": f"0x{address:04X}",
+            "words": [f"0x{word:04X}" for word in words],
+        }
+    return snap
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -21,31 +62,12 @@ async def _run(args: argparse.Namespace) -> int:
         )
     else:
         inv = SajInverter.tcp(args.tcp, port=args.port, slave_id=args.slave, timeout=args.timeout)
-    snap: dict = {}
     try:
-        await inv.async_setup()
-        await inv.async_update()
-        snap = inv.snapshot()
-        if args.history:
-            try:
-                snap["history"] = {
-                    "energy": await inv.async_read_energy_history(),
-                    "faults": await inv.async_read_fault_history(),
-                }
-            except UnsupportedInverterError as ex:
-                snap["history_error"] = str(ex)
-    except UnsupportedInverterError as ex:
-        if not args.raw:
-            raise
-        snap["setup_error"] = str(ex)
-    if args.raw:
-        address = int(args.raw[0], 0)
-        count = int(args.raw[1], 0)
-        words = await inv.async_read_raw_words(address, count)
-        snap["raw"] = {
-            "address": f"0x{address:04X}",
-            "words": [f"0x{word:04X}" for word in words],
-        }
+        snap = await _dump(inv, args)
+    except (ModbusError, UnsupportedInverterError, ValueError, _CliError) as ex:
+        print(f"error: {ex}", file=sys.stderr)
+        await inv.async_close()
+        return 2
     print(json.dumps(snap, indent=2, default=str))
     await inv.async_close()
     return 0

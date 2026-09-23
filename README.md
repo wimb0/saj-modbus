@@ -145,6 +145,10 @@ python -m saj_modbus.cli --tcp 192.168.1.50 --raw 0x0B00 10
 python -m saj_modbus.cli --tcp 192.168.1.50 --timeout 10
 ```
 
+Exit codes: 0 on success, 2 with `error: …` on stderr for expected failures
+(dead link, refused/unsupported unit, bad `--raw` values). Unexpected bugs
+still traceback.
+
 ## Layout
 
 - `models.py` — devtype → family/model (`detect_family`,

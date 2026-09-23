@@ -365,30 +365,35 @@ class SajInverter(Device):
                 "History blocks are only mapped for PLUS/R5 inverters",
             )
 
-    @staticmethod
-    def _plain(comp: Component) -> dict[str, Any]:
-        """Declared fields of one component, datetimes as ISO strings."""
-        return _plain_items(comp)
-
     async def async_read_energy_history(self) -> dict[str, dict[str, Any]]:
         """Read the energy ledger: daily, monthly, and yearly totals.
 
         Slow (a few hundred registers) — call on demand, not every poll.
-        A refused block is skipped; if none answers the inverter does not
+        The three blocks read concurrently (the link serializes them); a
+        refused block is skipped, and if none answers the inverter does not
         serve history at all and this raises.
         """
         self._require_history_family()
-        out: dict[str, dict[str, Any]] = {}
-        for key, comp in (
-            ("daily_kwh", self.history_daily),
-            ("monthly_kwh", self.history_monthly),
-            ("yearly_kwh", self.history_yearly),
-        ):
+
+        async def read_one(
+            key: str, comp: Component
+        ) -> tuple[str, dict[str, Any]] | None:
             try:
                 await comp.async_update()
             except _NOT_SERVED:
-                continue
-            out[key] = self._plain(comp)
+                return None
+            return key, _plain_items(comp)
+
+        results = await asyncio.gather(
+            read_one("daily_kwh", self.history_daily),
+            read_one("monthly_kwh", self.history_monthly),
+            read_one("yearly_kwh", self.history_yearly),
+        )
+        out: dict[str, dict[str, Any]] = {}
+        for result in results:
+            if result is not None:
+                key, plain = result
+                out[key] = plain
         if not out:
             raise UnsupportedInverterError(
                 self.devtype,
@@ -454,36 +459,60 @@ class SajInverter(Device):
             raise errors[0]
         return count
 
+    async def _read_fault_window(
+        self,
+        first: int,
+        last: int,
+        block: Component,
+        slots: dict[int, tuple[datetime | None, int | None, int | None, int | None]],
+    ) -> None:
+        """Read one 25-slot window, falling back to slot-by-slot on refusal."""
+        try:
+            await block.async_update()
+        except _NOT_SERVED:
+            await self._read_fault_slots_fallback(first, last, slots)
+            return
+        for slot in range(first, last + 1):
+            slots[slot] = (
+                getattr(block, f"herror_time{slot:03d}"),
+                getattr(block, f"herror{slot:03d}_0"),
+                getattr(block, f"herror{slot:03d}_1"),
+                getattr(block, f"herror{slot:03d}_2"),
+            )
+
     async def async_read_fault_history(self) -> list[dict[str, Any]]:
         """Read the 100-slot fault record; empty slots are skipped.
 
-        Slow (~1000 registers over several reads) — call on demand. Windows
-        the inverter refuses fall back to slot-by-slot reads; if nothing
-        answers at all this raises instead of returning a lying empty list.
+        Slow (~1000 registers over several reads) — call on demand. The four
+        windows read concurrently (the link serializes them); a refused
+        window falls back to slot-by-slot reads. If nothing answers at all
+        this raises instead of returning a lying empty list; a window that
+        fails while others succeed is logged and skipped.
 
         Timestamps are naive datetimes (the inverter reports no zone);
         contrast the timezone-aware realtime clock.
         """
         self._require_history_family()
         slots: dict[int, tuple[datetime | None, int | None, int | None, int | None]] = {}
-        for first, last, block in self.history_faults:
-            try:
-                await block.async_update()
-            except _NOT_SERVED:
-                await self._read_fault_slots_fallback(first, last, slots)
-                continue
-            for slot in range(first, last + 1):
-                slots[slot] = (
-                    getattr(block, f"herror_time{slot:03d}"),
-                    getattr(block, f"herror{slot:03d}_0"),
-                    getattr(block, f"herror{slot:03d}_1"),
-                    getattr(block, f"herror{slot:03d}_2"),
-                )
+        results = await asyncio.gather(
+            *(
+                self._read_fault_window(first, last, block, slots)
+                for first, last, block in self.history_faults
+            ),
+            return_exceptions=True,
+        )
+        errors = [r for r in results if isinstance(r, BaseException)]
         if not slots:
+            if errors:
+                if any(isinstance(e, ModbusConnectionError) for e in errors):
+                    raise next(e for e in errors if isinstance(e, ModbusConnectionError))
+                raise errors[0]
             raise UnsupportedInverterError(
                 self.devtype,
                 "fault history not served by this inverter (0x0B00 refused)",
             )
+        for err in errors:
+            _LOGGER.warning("Fault history window unread, skipped: %s", err)
         return build_fault_history(slots)
 
     # -- snapshot ----------------------------------------------------------

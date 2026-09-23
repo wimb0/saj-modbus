@@ -133,3 +133,25 @@ async def test_raw_words_escape_hatch() -> None:
     await inv.async_setup()
     assert await inv.async_read_raw_words(0x0100, 2) == [0x0002, 0x0000]
     await inv.async_close()
+
+
+async def test_energy_history_blocks() -> None:
+    unit = make_r5_unit()  # type: ignore[assignment]
+    unit.holding.update(
+        {
+            0x0A00: 100,  # etoday1 = 1.00 kWh
+            0x0A5D: 0x0000,  # emonth1 = 178.94 kWh over 0x0A5D-0x0A5E
+            0x0A5E: 17894,
+            0x0A8D: 0x0002,  # eyear = 1350.71 kWh over 0x0A8D-0x0A8E
+            0x0A8E: 3999,
+        }
+    )
+    inv = SajInverter(unit)  # type: ignore[arg-type]
+    await inv.async_setup()
+    energy = await inv.async_read_energy_history()
+    assert energy["daily_kwh"]["etoday1"] == 1.0
+    assert energy["monthly_kwh"]["emonth1"] == 178.94
+    assert energy["monthly_kwh"]["lemonth1"] == 0.0
+    assert energy["yearly_kwh"]["eyear"] == 1350.71
+    assert energy["yearly_kwh"]["eyear1"] == 0.0
+    await inv.async_close()
