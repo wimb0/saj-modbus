@@ -1,0 +1,22 @@
+[project]
+name = "saj-modbus"
+version = "0.2.0"
+description = "Read (and control) SAJ PLUS / R5 / R6 solar inverters over Modbus. C6 excluded. Built from the SAJ Modbus PDFs."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "modbus-connection[tmodbus]>=4.8.1",
+]
+
+[project.optional-dependencies]
+cli = []
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["saj_modbus*"]
