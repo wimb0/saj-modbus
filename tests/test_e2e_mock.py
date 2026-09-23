@@ -41,7 +41,8 @@ def make_r5_unit(overrides: dict[int, int] | None = None) -> object:
         range(0x8F03, 0x8F03 + 10), _pack_ascii("R5X1252J2340E53422", 10), strict=True
     ):
         holding[addr] = word
-    holding.update(overrides)
+    if overrides:
+        holding.update(overrides)
     conn = MockModbusConnection()
     unit = conn.for_unit(1)
     unit.holding.update(holding)
