@@ -10,7 +10,7 @@ import sys
 import types
 from datetime import datetime
 
-from saj_modbus.fields import decode_bcd_clock_words
+from saj_modbus.fields import decode_bcd_clock_words, decode_history_time_words
 
 
 def _install_model_stub() -> None:
@@ -67,10 +67,29 @@ def _is_field(value) -> bool:
     return isinstance(value, tuple) or hasattr(value, "address")
 
 
-def test_bcd_clock_valid():
+def test_bcd_clock_direct():
     assert decode_bcd_clock_words([0x2015, 0x0102, 0x1011, 0x1200]) == datetime(
         2015, 1, 2, 10, 11, 12
     )
+
+
+def test_history_time_words_binary_observed_on_r5():
+    # raw slot dump: 0x07E9 0x030C 0x0A2A 0x1C00 -> 2025-03-12 10:42:28
+    assert decode_history_time_words([0x07E9, 0x030C, 0x0A2A, 0x1C00]) == datetime(
+        2025, 3, 12, 10, 42, 28
+    )
+
+
+def test_history_time_words_bcd_fallback():
+    # genuine BCD for the same stamp; binary year 0x2025 (=8229) is gated out
+    assert decode_history_time_words([0x2025, 0x0312, 0x1042, 0x2800]) == datetime(
+        2025, 3, 12, 10, 42, 28
+    )
+
+
+def test_history_time_words_empty_is_none():
+    assert decode_history_time_words([0, 0, 0, 0]) is None
+    assert decode_history_time_words([0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF]) is None
 
 
 def test_build_fault_history_skips_empty_and_orders():

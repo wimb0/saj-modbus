@@ -82,6 +82,31 @@ def decode_bcd_clock_words(words: list[int]) -> datetime | None:
         return None
 
 
+def decode_history_time_words(words: list[int]) -> datetime | None:
+    """Decode 4 history fault-timestamp words (naive datetime, None if empty).
+
+    The PDFs label these BCD, but observed R5 firmware writes the binary
+    clock layout instead (e.g. ``0x07E9…`` = 2025-03-12 10:42:28). So try
+    binary first — gated on a plausible year so BCD years like ``0x2025``
+    (= 8229 binary) cannot slip through — then genuine BCD.
+    """
+    try:
+        year = words[0]
+        candidate = datetime(
+            year=year,
+            month=words[1] >> 8,
+            day=words[1] & 0xFF,
+            hour=words[2] >> 8,
+            minute=words[2] & 0xFF,
+            second=words[3] >> 8,
+        )
+        if 2000 <= year <= 2100:
+            return candidate
+    except (ValueError, IndexError):
+        pass
+    return decode_bcd_clock_words(words)
+
+
 try:  # optional at test time; required at runtime
     from modbus_connection.model import RegisterField
 

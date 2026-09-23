@@ -24,17 +24,17 @@ from typing import Any
 from modbus_connection.model import Component, RegisterField
 
 from .faults import decode_plus_r5_faults
-from .fields import decode_bcd_clock_words
+from .fields import decode_history_time_words
 from .measure import mgauge, muint32
 
 
 class HistoryTimeField(RegisterField[datetime | None]):
-    """BCD history timestamp: year word, month/day, hour/minute, second bytes."""
+    """History fault timestamp: binary clock layout, BCD fallback (see fields)."""
 
     def decode(
         self, words: list[int], scale_exponent: int | None = None
     ) -> datetime | None:
-        return decode_bcd_clock_words(words)
+        return decode_history_time_words(words)
 
 
 def _daily_energy_class() -> type[Component]:

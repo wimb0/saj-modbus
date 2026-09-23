@@ -1,6 +1,6 @@
 [project]
 name = "saj-modbus"
-version = "0.3.2"
+version = "0.3.3"
 description = "Read (and control) SAJ PLUS / R5 / R6 solar inverters over Modbus. C6 excluded. Built from the SAJ Modbus PDFs."
 readme = "README.md"
 requires-python = ">=3.12"
