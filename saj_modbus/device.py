@@ -18,7 +18,7 @@ Polling and the optional-block pattern build on upstream
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from modbus_connection import (
@@ -523,4 +523,4 @@ class SajInverter(Device):
         ``.astimezone()`` preserves that across timezones where a bare UTC
         ``now()`` would shift the wall clock.
         """
-        await self.legacy.write("datetime", value or datetime.now(timezone.utc).astimezone())
+        await self.legacy.write("datetime", value or datetime.now(UTC).astimezone())
