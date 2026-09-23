@@ -354,13 +354,6 @@ class SajInverter:
             getattr(self, name).notify()
         return UpdateReport(updated, failed)
 
-    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
-        """Raw registers behind the polled components (no listener notify)."""
-        if self._readable is None:
-            await self.async_setup()
-        assert self._readable is not None
-        return await self._readable.async_read_raw(notify=False)
-
     async def async_close(self) -> None:
         conn: ModbusConnection | None = getattr(self, "_connection", None)
         if conn is not None:
