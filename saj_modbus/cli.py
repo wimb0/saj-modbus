@@ -8,6 +8,7 @@ import json
 
 from .connection import DEFAULT_PORT, DEFAULT_SLAVE_ID
 from .device import SajInverter
+from .models import UnsupportedInverterError
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -18,9 +19,18 @@ async def _run(args: argparse.Namespace) -> int:
     try:
         await inv.async_setup()
         await inv.async_update()
+        snap = inv.snapshot()
+        if args.history:
+            try:
+                snap["history"] = {
+                    "energy": await inv.async_read_energy_history(),
+                    "faults": await inv.async_read_fault_history(),
+                }
+            except UnsupportedInverterError as ex:
+                snap["history_error"] = str(ex)
     finally:
         pass
-    print(json.dumps(inv.snapshot(), indent=2, default=str))
+    print(json.dumps(snap, indent=2, default=str))
     await inv.async_close()
     return 0
 
@@ -33,6 +43,11 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--baudrate", type=int, default=9600)
     parser.add_argument("--slave", type=int, default=DEFAULT_SLAVE_ID)
+    parser.add_argument(
+        "--history",
+        action="store_true",
+        help="also read energy + fault history (PLUS/R5 only, slow: ~1200 registers)",
+    )
     args = parser.parse_args()
     raise SystemExit(asyncio.run(_run(args)))
 

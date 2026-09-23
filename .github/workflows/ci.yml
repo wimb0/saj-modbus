@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        # 3.12 pins the floor we promise in requires-python; >=3.12 floats
+        # to the newest stable (3.14 today, 3.15 once released).
         python-version: ["3.12", ">=3.12"]
     steps:
       - uses: actions/checkout@v4

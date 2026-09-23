@@ -39,6 +39,11 @@ from .faults import (
     decode_r6_3k_faults,
     fault_messages_to_state,
 )
+from .history import (
+    FAULT_BLOCKS,
+    HistoryDailyEnergy,
+    HistoryMonthlyEnergy,
+)
 from .info import InverterInfo
 from .models import (
     DEVTYPE_MODELS,
@@ -91,12 +96,19 @@ class UpdateReport:
 
 
 def _component_snapshot(components: list[tuple[str, Component]]) -> dict[str, Any]:
-    """Dump every field of the given components into a plain dict."""
+    """Dump every *declared register field* of the components into a dict.
+
+    Only ``declared_fields`` (the register/coil words from the PDF maps) are
+    included — never the planner internals (``coil_ranges``, ``max_gap``,
+    ``register_space``, ...) that also live on the instance.
+    """
     out: dict[str, Any] = {}
     for prefix, comp in components:
-        for name in dir(comp):
-            if name.startswith("_"):
-                continue
+        declared = getattr(type(comp), "declared_fields", None)
+        names = list(declared) if declared else [
+            n for n in dir(comp) if not n.startswith("_")
+        ]
+        for name in names:
             try:
                 value = getattr(comp, name)
             except Exception:  # noqa: BLE001 - one bad field must not kill a dump
@@ -137,6 +149,12 @@ class SajInverter:
         self.classic_settings = ClassicSettings(unit)
         self.r6_3k_settings = R6_3KSettings(unit)
         self.legacy = LegacySettings(unit)
+        # History (PLUS/R5 only, never polled — read on demand)
+        self.history_daily = HistoryDailyEnergy(unit)
+        self.history_monthly = HistoryMonthlyEnergy(unit)
+        self.history_faults: list[tuple[int, int, Component]] = [
+            (first, last, cls(unit)) for first, last, cls in FAULT_BLOCKS
+        ]
 
         self.family: Family | None = None
         self.absent: frozenset[str] = frozenset()
@@ -199,6 +217,8 @@ class SajInverter:
             "r6_3k_energy": self.r6_3k_energy,
             "r6_50k_head": self.r6_50k_head,
             "r6_50k_pv": self.r6_50k_pv,
+            "history_daily": self.history_daily,
+            "history_monthly": self.history_monthly,
         }
 
     @property
@@ -343,6 +363,65 @@ class SajInverter:
         conn: ModbusConnection | None = getattr(self, "_connection", None)
         if conn is not None:
             await conn.close()
+
+    # -- history (on demand, PLUS/R5 only) -----------------------------------
+    def _require_history_family(self) -> None:
+        """History blocks are only mapped for PLUS/R5; anything else raises."""
+        if self._require_family() != "plus_r5":
+            raise UnsupportedInverterError(
+                self.devtype,
+                "History blocks are only mapped for PLUS/R5 inverters",
+            )
+
+    @staticmethod
+    def _plain(comp: Component) -> dict[str, Any]:
+        """Declared fields of one component, datetimes as ISO strings."""
+        out: dict[str, Any] = {}
+        for name in getattr(type(comp), "declared_fields", ()):
+            value = getattr(comp, name)
+            out[name] = value.isoformat() if isinstance(value, datetime) else value
+        return out
+
+    async def async_read_energy_history(self) -> dict[str, dict[str, Any]]:
+        """Read the energy ledger: daily (3 months) + monthly/yearly totals.
+
+        Slow (a few hundred registers) — call on demand, not every poll.
+        """
+        self._require_history_family()
+        await self.history_daily.async_update()
+        await self.history_monthly.async_update()
+        return {
+            "daily_kwh": self._plain(self.history_daily),
+            "monthly_kwh": self._plain(self.history_monthly),
+        }
+
+    async def async_read_fault_history(self) -> list[dict[str, Any]]:
+        """Read the 100-slot fault record; empty slots are skipped.
+
+        Slow (~1000 registers over several reads) — call on demand.
+        """
+        self._require_history_family()
+        for _, _, block in self.history_faults:
+            await block.async_update()
+        blocks = {slot: block for first, last, block in self.history_faults for slot in range(first, last + 1)}
+        out: list[dict[str, Any]] = []
+        for slot in range(1, 101):
+            block = blocks[slot]
+            time = getattr(block, f"herror_time{slot:03d}")
+            faults = decode_plus_r5_faults(
+                getattr(block, f"herror{slot:03d}_0"),
+                getattr(block, f"herror{slot:03d}_1"),
+                getattr(block, f"herror{slot:03d}_2"),
+            )
+            if time is not None or faults:
+                out.append(
+                    {
+                        "slot": slot,
+                        "time": time.isoformat() if time is not None else None,
+                        "faults": faults,
+                    }
+                )
+        return out
 
     # -- snapshot ----------------------------------------------------------
     def snapshot(self) -> dict[str, Any]:

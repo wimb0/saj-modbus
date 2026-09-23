@@ -1,13 +1,14 @@
 # saj-modbus
 
-Standalone Python package for **SAJ solar inverters over Modbus**
+Standalone Python package for **SAJ solar inverters over Modbus**, built from:
 
-- Based on registers in
-  - `saj-plus-series-inverter-modbus-protocal.pdf`
-  - `SAJ Modbus Protocol_EN_R5.pdf`
-  - `map-modbus-communication-protocol-saj-r5-r6-c6.pdf`
+- your `saj_modbus` HA custom component (`custom_components/saj_modbus/`, R5-focused), and
+- the three PDFs in `www/saj/`:
+  - `saj-plus-series-inverter-modbus-protocal.pdf` (2017, Sununo Plus / Suntrio Plus)
+  - `SAJ Modbus Protocol_EN_R5.pdf` (2019, R5 series)
+  - `map-modbus-communication-protocol-saj-r5-r6-c6.pdf` (2022 v7.2, PLUS / R5 / R6 / C6)
 
-**read data from all supported inverters** with one API, plus the
+Goal: **read data from all supported inverters** with one API, plus the
 control writes your component already proves (power on/off, power limit, clock).
 
 **C6 is excluded on purpose** — Modbus control is known to cause issues on
@@ -61,6 +62,18 @@ the wrong hardware is what mis-controls inverters.
     legacy `0x801F` LimitPower (kept for your existing installs),
     `0x8014` RS485 baud/slave, `0x8015` clear faults, `0x801B` clear energy,
     `0x8020` clock (W, 4 regs).
+
+Unconnected inputs (spare phases, missing MPPT strings) answer `0xFFFF` /
+`0xFFFFFFFF`; those decode to `None` (unavailable) rather than phantom
+readings like 6553.5 V. The CLI/snapshot likewise only contains declared
+register fields, never Modbus planner internals.
+
+On-demand history (PLUS/R5 only — the newer maps don't republish these
+blocks): `async_read_energy_history()` for the daily/monthly/yearly ledger
+(`0x0A00-0x0ABE`) and `async_read_fault_history()` for the 100-slot fault
+record (`0x0B00-0x0EE6`, empty slots skipped). Both are slow (~1200 registers
+total), so they stay out of the poll loop; other families raise
+`UnsupportedInverterError`.
 
 Fault text tables live in `saj_modbus/faults.py` (classic 81-code map,
 2022 unified PLUS/R5/R6 map, and R6-3K bit-tag maps for
@@ -119,6 +132,8 @@ CLI dump:
 ```bash
 python -m saj_modbus.cli --tcp 192.168.1.50 --port 502 --slave 1
 python -m saj_modbus.cli --serial /dev/ttyUSB0 --baudrate 9600 --slave 1
+# plus on-demand history (slow):
+python -m saj_modbus.cli --tcp 192.168.1.50 --history
 ```
 
 ## Layout
@@ -129,7 +144,9 @@ python -m saj_modbus.cli --serial /dev/ttyUSB0 --baudrate 9600 --slave 1
 - `fields.py` — `DateTimeField` (clock `yyyy/MMdd/HHmm/ss__`) + pure
   `decode_clock_words` / `encode_clock_words` (pure, tested).
 - `info.py`, `realtime_plus_r5.py`, `realtime_r6_3k.py`, `realtime_r6_50k.py`,
-  `settings.py` — `modbus-connection` Components.
+  `history.py`, `settings.py` — `modbus-connection` Components.
+- `measure.py` — `mgauge`/`minteger`/`muint32`: measurement factories with the
+  `0xFFFF` → `None` sentinel wired in.
 - `device.py` — `SajInverter` (type-driven detect + poll + snapshot + writes).
 - `connection.py` — TCP / serial constructors.
 - `cli.py` — JSON dump.
