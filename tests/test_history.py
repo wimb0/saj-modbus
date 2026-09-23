@@ -50,6 +50,23 @@ _install_model_stub()
 from saj_modbus import history  # noqa: E402
 
 
+def _addr(field) -> int:
+    """Field address with the stub (tuple) and the real library (object)."""
+    return field[1] if isinstance(field, tuple) else field.address
+
+
+def _nan(field):
+    """Configured sentinel with the stub (kwarg) and the real library (frozenset)."""
+    if isinstance(field, tuple):
+        return field[3].get("nan")
+    nan = field.nan
+    return next(iter(nan)) if nan else None
+
+
+def _is_field(value) -> bool:
+    return isinstance(value, tuple) or hasattr(value, "address")
+
+
 def test_bcd_clock_valid():
     assert decode_bcd_clock_words([0x2015, 0x0102, 0x1011, 0x1200]) == datetime(
         2015, 1, 2, 10, 11, 12
@@ -68,29 +85,29 @@ def test_bcd_clock_invalid_is_none():
 
 def test_daily_energy_addresses_and_sentinels():
     cls = history.HistoryDailyEnergy
-    assert cls.etoday1[1] == 0x0A00
-    assert cls.etoday31[1] == 0x0A1E
-    assert cls.letoday1[1] == 0x0A1F
-    assert cls.letoday31[1] == 0x0A3D
-    assert cls.lletoday1[1] == 0x0A3E
-    assert cls.lletoday31[1] == 0x0A5C
-    fields = [v for v in vars(cls).values() if isinstance(v, tuple)]
+    assert _addr(cls.etoday1) == 0x0A00
+    assert _addr(cls.etoday31) == 0x0A1E
+    assert _addr(cls.letoday1) == 0x0A1F
+    assert _addr(cls.letoday31) == 0x0A3D
+    assert _addr(cls.lletoday1) == 0x0A3E
+    assert _addr(cls.lletoday31) == 0x0A5C
+    fields = [v for v in vars(cls).values() if _is_field(v)]
     assert len(fields) == 93
-    assert all(v[3].get("nan") == 0xFFFF for v in fields)
+    assert all(_nan(v) == 0xFFFF for v in fields)
 
 
 def test_monthly_energy_addresses_and_sentinels():
     cls = history.HistoryMonthlyEnergy
-    assert cls.emonth1[1] == 0x0A5D
-    assert cls.emonth12[1] == 0x0A73
-    assert cls.lemonth1[1] == 0x0A75
-    assert cls.lemonth12[1] == 0x0A8B
-    assert cls.eyear[1] == 0x0A8D
-    assert cls.eyear1[1] == 0x0A8F
-    assert cls.eyear24[1] == 0x0ABD
-    fields = [v for v in vars(cls).values() if isinstance(v, tuple)]
+    assert _addr(cls.emonth1) == 0x0A5D
+    assert _addr(cls.emonth12) == 0x0A73
+    assert _addr(cls.lemonth1) == 0x0A75
+    assert _addr(cls.lemonth12) == 0x0A8B
+    assert _addr(cls.eyear) == 0x0A8D
+    assert _addr(cls.eyear1) == 0x0A8F
+    assert _addr(cls.eyear24) == 0x0ABD
+    fields = [v for v in vars(cls).values() if _is_field(v)]
     assert len(fields) == 12 + 12 + 1 + 24
-    assert all(v[3].get("nan") == 0xFFFFFFFF for v in fields)
+    assert all(_nan(v) == 0xFFFFFFFF for v in fields)
 
 
 def test_fault_blocks_cover_100_slots():
@@ -103,12 +120,8 @@ def test_fault_blocks_cover_100_slots():
     first = history.HistoryFaults001_025
     assert first.herror_time001.address == 0x0B00
     last = history.HistoryFaults076_100
-    assert last.herror100_2[1] == 0x0EE6
-    assert last.herror100_2[3].get("nan") == 0xFFFFFFFF
+    assert _addr(last.herror100_2) == 0x0EE6
+    assert _nan(last.herror100_2) == 0xFFFFFFFF
     for _, _, cls in history.FAULT_BLOCKS:
-        members = [
-            v
-            for v in vars(cls).values()
-            if isinstance(v, tuple) or isinstance(v, history.HistoryTimeField)
-        ]
+        members = [v for v in vars(cls).values() if _is_field(v)]
         assert len(members) == 100  # 25 slots x (time + 3 fault words)
