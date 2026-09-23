@@ -136,11 +136,18 @@ def test_monthly_energy_addresses_and_sentinels():
     assert _addr(cls.emonth12) == 0x0A73
     assert _addr(cls.lemonth1) == 0x0A75
     assert _addr(cls.lemonth12) == 0x0A8B
+    fields = [v for v in vars(cls).values() if _is_field(v)]
+    assert len(fields) == 12 + 12
+    assert all(_nan(v) == 0xFFFFFFFF for v in fields)
+
+
+def test_yearly_energy_addresses_and_sentinels():
+    cls = history.HistoryYearlyEnergy
     assert _addr(cls.eyear) == 0x0A8D
     assert _addr(cls.eyear1) == 0x0A8F
     assert _addr(cls.eyear24) == 0x0ABD
     fields = [v for v in vars(cls).values() if _is_field(v)]
-    assert len(fields) == 12 + 12 + 1 + 24
+    assert len(fields) == 1 + 24
     assert all(_nan(v) == 0xFFFFFFFF for v in fields)
 
 

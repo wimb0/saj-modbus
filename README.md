@@ -69,9 +69,9 @@ readings like 6553.5 V. The CLI/snapshot likewise only contains declared
 register fields, never Modbus planner internals.
 
 On-demand history (PLUS/R5 only — the newer maps don't republish these
-blocks): `async_read_energy_history()` for the daily/monthly/yearly ledger
-(`0x0A00-0x0ABE`) and `async_read_fault_history()` for the 100-slot fault
-record (`0x0B00-0x0EE6`, empty slots skipped). Both are slow (~1200 registers
+blocks): `async_read_energy_history()` returns `daily_kwh`, `monthly_kwh`
+and `yearly_kwh` ledgers (`0x0A00-0x0ABE`), and `async_read_fault_history()`
+the 100-slot fault record (`0x0B00-0x0EE6`, empty slots skipped). Both are slow (~1200 registers
 total), so they stay out of the poll loop; other families raise
 `UnsupportedInverterError`. Firmware that serves fewer than the documented
 100 fault slots (or none) is handled: refused windows fall back to

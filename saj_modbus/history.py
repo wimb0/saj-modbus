@@ -50,16 +50,23 @@ def _daily_energy_class() -> type[Component]:
 
 
 def _monthly_energy_class() -> type[Component]:
-    """Monthly + yearly totals (0x0A5D-0x0ABE, UInt32 -2 kWh)."""
+    """Monthly totals, this year + last year (0x0A5D-0x0A8B, UInt32 -2 kWh)."""
     namespace: dict[str, Any] = {}
     for i in range(1, 13):
         namespace[f"emonth{i}"] = muint32(0x0A5D + (i - 1) * 2, scale=0.01)
         namespace[f"lemonth{i}"] = muint32(0x0A75 + (i - 1) * 2, scale=0.01)
+    namespace["__doc__"] = "Monthly energy (this year + last year)."
+    return type("HistoryMonthlyEnergy", (Component,), namespace)
+
+
+def _yearly_energy_class() -> type[Component]:
+    """Yearly archive: current year + previous 24 (0x0A8D-0x0ABE, UInt32 -2 kWh)."""
+    namespace: dict[str, Any] = {}
     namespace["eyear"] = muint32(0x0A8D, scale=0.01)
     for i in range(1, 25):
         namespace[f"eyear{i}"] = muint32(0x0A8F + (i - 1) * 2, scale=0.01)
-    namespace["__doc__"] = "Monthly energy (this/last year) + yearly archive."
-    return type("HistoryMonthlyEnergy", (Component,), namespace)
+    namespace["__doc__"] = "Yearly energy archive."
+    return type("HistoryYearlyEnergy", (Component,), namespace)
 
 
 @cache
@@ -83,6 +90,7 @@ def _fault_block_class(first: int, last: int) -> type[Component]:
 
 HistoryDailyEnergy = _daily_energy_class()
 HistoryMonthlyEnergy = _monthly_energy_class()
+HistoryYearlyEnergy = _yearly_energy_class()
 
 HistoryFaults001_025 = _fault_block_class(1, 25)
 HistoryFaults026_050 = _fault_block_class(26, 50)

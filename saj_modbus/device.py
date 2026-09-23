@@ -46,6 +46,7 @@ from .history import (
     FAULT_BLOCKS,
     HistoryDailyEnergy,
     HistoryMonthlyEnergy,
+    HistoryYearlyEnergy,
     _fault_block_class,
     build_fault_history,
 )
@@ -141,6 +142,7 @@ class SajInverter(Device):
         # History (PLUS/R5 only, never polled — read on demand)
         self.history_daily = HistoryDailyEnergy(unit)
         self.history_monthly = HistoryMonthlyEnergy(unit)
+        self.history_yearly = HistoryYearlyEnergy(unit)
         self.history_faults: list[tuple[int, int, Component]] = [
             (first, last, cls(unit)) for first, last, cls in FAULT_BLOCKS
         ]
@@ -207,6 +209,7 @@ class SajInverter(Device):
             "r6_50k_pv": self.r6_50k_pv,
             "history_daily": self.history_daily,
             "history_monthly": self.history_monthly,
+            "history_yearly": self.history_yearly,
         }
 
     @property
@@ -337,10 +340,10 @@ class SajInverter(Device):
         return _plain_items(comp)
 
     async def async_read_energy_history(self) -> dict[str, dict[str, Any]]:
-        """Read the energy ledger: daily (3 months) + monthly/yearly totals.
+        """Read the energy ledger: daily, monthly, and yearly totals.
 
         Slow (a few hundred registers) — call on demand, not every poll.
-        A refused block is skipped; if neither answers the inverter does not
+        A refused block is skipped; if none answers the inverter does not
         serve history at all and this raises.
         """
         self._require_history_family()
@@ -348,6 +351,7 @@ class SajInverter(Device):
         for key, comp in (
             ("daily_kwh", self.history_daily),
             ("monthly_kwh", self.history_monthly),
+            ("yearly_kwh", self.history_yearly),
         ):
             try:
                 await comp.async_update()
