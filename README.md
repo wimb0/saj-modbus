@@ -36,7 +36,7 @@ the wrong hardware is what mis-controls inverters.
 
 ## Register maps (from the PDFs)
 
-- Info (all): `0x8F00` Type, `0x8F01` SubType, `0x8F02` CommVer (-3),
+- Info (all): `0x8F00` Type, `0x8F01` SubType (= rated watts, e.g. 2500), `0x8F02` CommVer (-3),
   `0x8F03` SN (10 regs), `0x8F0D` PC (10), `0x8F17` DV, `0x8F18` MCV,
   `0x8F19` SCV, `0x8F1A` DispHW, `0x8F1B` CtrlHW, `0x8F1C` PowerHW,
   optional `0x8F1D` RS485 baud/slave (R5 doc only).
@@ -139,6 +139,10 @@ python -m saj_modbus.cli --tcp 192.168.1.50 --port 502 --slave 1
 python -m saj_modbus.cli --serial /dev/ttyUSB0 --baudrate 9600 --slave 1
 # plus on-demand history (slow):
 python -m saj_modbus.cli --tcp 192.168.1.50 --history
+# raw register escape hatch for unknown areas (works even if setup refuses):
+python -m saj_modbus.cli --tcp 192.168.1.50 --raw 0x0B00 10
+# non-default link timeout (seconds, default 5):
+python -m saj_modbus.cli --tcp 192.168.1.50 --timeout 10
 ```
 
 ## Layout
@@ -156,11 +160,16 @@ python -m saj_modbus.cli --tcp 192.168.1.50 --history
 - `connection.py` — TCP / serial constructors.
 - `cli.py` — JSON dump.
 
-## Testing without hardware
+## Testing
 
-`tests/test_decode.py` covers only pure helpers (clock, fault translate,
-power-limit scales) so it runs without `modbus-connection` or an inverter:
+Pure-logic tests (`test_decode`, `test_detect`, `test_sentinels`,
+`test_history`) run anywhere — no `modbus-connection`, no inverter.
+`test_e2e_mock` drives a scripted in-memory inverter through detect, poll,
+snapshot, writes, and partial/unserved history, so it needs the dependency
+(`pip install -e ".[dev]" provides it with `pytest-asyncio`):
 
 ```bash
 python -m pytest tests/ -q
 ```
+
+See `CHANGELOG.md` for version history.

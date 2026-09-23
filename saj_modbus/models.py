@@ -134,9 +134,28 @@ def describe_plus_r5_mode(value: int | None) -> str:
         return "Unknown"
     return PLUS_R5_STATUSES.get(value, "Unknown")
 
-
 def describe_r6_3k_mode(value: int | None) -> str:
     """Human status for R6 3-15K mpvmode values."""
     if value is None:
         return "Unknown"
     return R6_3K_MODES.get(value, "Unknown")
+
+
+def rated_power_w(subtype: int | None) -> int | None:
+    """Machine power in watts from info SubType (``0x8F01``).
+
+    Verified against R5 hardware (2500 = 2.5 kW); unwritten ``0xFFFF``
+    already decodes to ``None`` upstream.
+    """
+    return subtype
+
+
+def describe_model(base: str | None, subtype: int | None) -> str | None:
+    """Family label with the rated power appended, e.g. ``R5 (single-phase, 2.5K)``."""
+    if base is None:
+        return None
+    power = rated_power_w(subtype)
+    if power is None:
+        return base
+    suffix = f"{power / 1000:g}K" if power >= 1000 else f"{power}W"
+    return f"{base}, {suffix}"

@@ -17,6 +17,7 @@ Polling and the optional-block pattern build on upstream
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -24,16 +25,18 @@ from typing import Any
 from modbus_connection import (
     IllegalDataAddressError,
     IllegalFunctionError,
+    ModbusConnectionError,
     ModbusError,
     ModbusTimeoutError,
     ModbusUnit,
 )
-from modbus_connection.model import Component
+from modbus_connection.model import Component, integer
 from modbus_connection.model.device import Device, UpdateReport, read_optional
 from modbus_connection.tmodbus import ModbusConnection
 
 from .connection import (
     DEFAULT_SLAVE_ID,
+    MODBUS_TIMEOUT,
     create_serial_connection,
     create_tcp_connection,
 )
@@ -55,9 +58,11 @@ from .models import (
     DEVTYPE_MODELS,
     Family,
     UnsupportedInverterError,
+    describe_model,
     describe_plus_r5_mode,
     describe_r6_3k_mode,
     detect_family,
+    rated_power_w,
 )
 from .realtime_plus_r5 import PlusR5Realtime
 from .realtime_r6_3k import (
@@ -154,9 +159,15 @@ class SajInverter(Device):
 
     # -- constructors ------------------------------------------------------
     @classmethod
-    def tcp(cls, host: str, port: int = 502, slave_id: int = UNIT_ID) -> SajInverter:
+    def tcp(
+        cls,
+        host: str,
+        port: int = 502,
+        slave_id: int = UNIT_ID,
+        timeout: int = MODBUS_TIMEOUT,
+    ) -> SajInverter:
         """Build an inverter over TCP (keeps the connection open)."""
-        conn = create_tcp_connection(host, port)
+        conn = create_tcp_connection(host, port, timeout=timeout)
         inv = cls(conn.for_unit(slave_id))
         inv._connection: ModbusConnection | None = conn
         return inv
@@ -167,9 +178,10 @@ class SajInverter(Device):
         device: str,
         baudrate: int = 9600,
         slave_id: int = UNIT_ID,
+        timeout: int = MODBUS_TIMEOUT,
     ) -> SajInverter:
         """Build an inverter over serial RTU (or serial-over-network URL)."""
-        conn = create_serial_connection(device, baudrate)
+        conn = create_serial_connection(device, baudrate, timeout=timeout)
         inv = cls(conn.for_unit(slave_id))
         inv._connection = conn
         return inv
@@ -227,7 +239,12 @@ class SajInverter(Device):
             return "R6 3-15K (hybrid)"
         if self.family == "r6_50k":
             return "R6 17-50K"
-        return DEVTYPE_MODELS.get(self.info.devtype)
+        return describe_model(DEVTYPE_MODELS.get(self.info.devtype), self.info.subtype)
+
+    @property
+    def rated_power(self) -> int | None:
+        """Rated machine power in watts (info SubType), None when unreported."""
+        return rated_power_w(self.info.subtype)
 
     @property
     def mpvmode_raw(self) -> int | None:
@@ -325,6 +342,20 @@ class SajInverter(Device):
         if conn is not None:
             await conn.close()
 
+    # -- raw escape hatch (debugging) ------------------------------------------
+    async def async_read_raw_words(self, address: int, count: int) -> list[int]:
+        """Read raw holding-register words (debugging unknown areas).
+
+        Uses single-word fields so odd counts and sparse maps read exactly;
+        refused addresses raise like any other failed read.
+        """
+        if not 1 <= count <= 125:
+            raise ValueError(f"count must be 1-125, got {count}")
+        namespace = {f"w{i}": integer(address + i, signed=False) for i in range(count)}
+        comp = type("RawWords", (Component,), namespace)(self.modbus_unit)
+        await comp.async_update()
+        return [getattr(comp, f"w{i}") or 0 for i in range(count)]
+
     # -- history (on demand, PLUS/R5 only) -----------------------------------
     def _require_history_family(self) -> None:
         """History blocks are only mapped for PLUS/R5; anything else raises."""
@@ -375,30 +406,52 @@ class SajInverter(Device):
 
         Some firmware serves fewer than the documented 100 slots and rejects
         any read covering the missing tail, so fall back to 10-register reads
-        and keep whatever answers. Aborts on 3 consecutive timeouts (dead link
-        rather than missing registers).
+        and keep whatever answers. Slots are read concurrently (the link
+        serializes them); a window where nothing answers but timeouts means
+        a dead link and raises, while refused slots are simply skipped.
         """
-        count = 0
-        timeouts = 0
-        for slot in range(first, last + 1):
+
+        async def read_one(
+            slot: int,
+        ) -> tuple[int, tuple[datetime | None, int | None, int | None, int | None]] | None | BaseException:
             comp = _fault_block_class(slot, slot)(self.modbus_unit)
             try:
                 await comp.async_update()
             except _NOT_SERVED:
-                continue
-            except ModbusTimeoutError:
-                timeouts += 1
-                if timeouts >= 3:
-                    raise
-                continue
-            timeouts = 0
-            slots[slot] = (
-                getattr(comp, f"herror_time{slot:03d}"),
-                getattr(comp, f"herror{slot:03d}_0"),
-                getattr(comp, f"herror{slot:03d}_1"),
-                getattr(comp, f"herror{slot:03d}_2"),
+                return None
+            except (ModbusTimeoutError, ModbusConnectionError) as ex:
+                return ex
+            return (
+                slot,
+                (
+                    getattr(comp, f"herror_time{slot:03d}"),
+                    getattr(comp, f"herror{slot:03d}_0"),
+                    getattr(comp, f"herror{slot:03d}_1"),
+                    getattr(comp, f"herror{slot:03d}_2"),
+                ),
             )
+
+        results = await asyncio.gather(
+            *(read_one(slot) for slot in range(first, last + 1)),
+            return_exceptions=True,
+        )
+        count = 0
+        errors: list[BaseException] = []
+        for result in results:
+            if result is None:
+                continue
+            if isinstance(result, (ModbusTimeoutError, ModbusConnectionError)):
+                errors.append(result)
+                continue
+            if isinstance(result, BaseException):
+                raise result
+            slot, reading = result
+            slots[slot] = reading
             count += 1
+        if count == 0 and errors:
+            if any(isinstance(ex, ModbusConnectionError) for ex in errors):
+                raise next(ex for ex in errors if isinstance(ex, ModbusConnectionError))
+            raise errors[0]
         return count
 
     async def async_read_fault_history(self) -> list[dict[str, Any]]:
@@ -461,6 +514,7 @@ class SajInverter(Device):
         out["family"] = self.family
         out["devtype"] = self.devtype
         out["model"] = self.model_name
+        out["rated_power_w"] = self.rated_power
         out["serial"] = self.serial_number
         out["rs485"] = decode_rs485_ate(self.info.rs485_ate)
         out["status"] = self.status

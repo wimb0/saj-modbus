@@ -10,9 +10,11 @@ DEFAULT_PORT = 502
 DEFAULT_SLAVE_ID = 1
 
 
-def create_tcp_connection(host: str, port: int = DEFAULT_PORT) -> ModbusConnection:
+def create_tcp_connection(
+    host: str, port: int = DEFAULT_PORT, timeout: int = MODBUS_TIMEOUT
+) -> ModbusConnection:
     """Create a TCP inverter connection."""
-    return ModbusConnection(ModbusTcpParams(host=host, port=port), timeout=MODBUS_TIMEOUT)
+    return ModbusConnection(ModbusTcpParams(host=host, port=port), timeout=timeout)
 
 
 def create_serial_connection(
@@ -21,6 +23,7 @@ def create_serial_connection(
     bytesize: int = 8,
     parity: str = "N",
     stopbits: int = 1,
+    timeout: int = MODBUS_TIMEOUT,
 ) -> ModbusConnection:
     """Create a serial (RTU) inverter connection.
 
@@ -37,5 +40,5 @@ def create_serial_connection(
             stopbits=stopbits,  # type: ignore[arg-type]
             framer="rtu",
         ),
-        timeout=MODBUS_TIMEOUT,
+        timeout=timeout,
     )

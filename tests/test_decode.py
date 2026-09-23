@@ -13,7 +13,12 @@ from saj_modbus.faults import (
     translate_mask_to_messages,
 )
 from saj_modbus.fields import decode_clock_words, encode_clock_words
-from saj_modbus.models import describe_plus_r5_mode, describe_r6_3k_mode
+from saj_modbus.models import (
+    describe_model,
+    describe_plus_r5_mode,
+    describe_r6_3k_mode,
+    rated_power_w,
+)
 
 
 def test_clock_roundtrip():
@@ -63,6 +68,16 @@ def test_modes():
     assert describe_plus_r5_mode(99) == "Unknown"
     assert describe_r6_3k_mode(2) == "Operate"
     assert describe_r6_3k_mode(5) == "Fault"
+
+
+def test_model_power():
+    assert rated_power_w(2500) == 2500
+    assert rated_power_w(None) is None
+    assert describe_model("R5 (single-phase)", 2500) == "R5 (single-phase), 2.5K"
+    assert describe_model("R5 (single-phase)", 5000) == "R5 (single-phase), 5K"
+    assert describe_model("R5 (single-phase)", 800) == "R5 (single-phase), 800W"
+    assert describe_model("R5 (single-phase)", None) == "R5 (single-phase)"
+    assert describe_model(None, 2500) is None
 
 
 def test_power_limit_helpers():

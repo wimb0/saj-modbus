@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from modbus_connection.model import Component, integer, string
 
-from .measure import mgauge
+from .measure import mgauge, minteger
 
 
 class InverterInfo(Component):
     """Static device information, read once at setup."""
 
     devtype = integer(0x8F00, signed=False)
-    subtype = integer(0x8F01, signed=False)
+    subtype = minteger(0x8F01, signed=False)
     commver = mgauge(0x8F02, 0.001, signed=False)
     sn = string(0x8F03, 10)
     pc = string(0x8F0D, 10)
