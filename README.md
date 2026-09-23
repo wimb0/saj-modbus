@@ -1,14 +1,13 @@
 # saj-modbus
 
-Standalone Python package for **SAJ solar inverters over Modbus**, built from:
+Standalone Python package for **SAJ solar inverters over Modbus**
 
-- your `saj_modbus` HA custom component (`custom_components/saj_modbus/`, R5-focused), and
-- the three PDFs in `www/saj/`:
-  - `saj-plus-series-inverter-modbus-protocal.pdf` (2017, Sununo Plus / Suntrio Plus)
-  - `SAJ Modbus Protocol_EN_R5.pdf` (2019, R5 series)
-  - `map-modbus-communication-protocol-saj-r5-r6-c6.pdf` (2022 v7.2, PLUS / R5 / R6 / C6)
+- Based on registers in
+  - `saj-plus-series-inverter-modbus-protocal.pdf`
+  - `SAJ Modbus Protocol_EN_R5.pdf`
+  - `map-modbus-communication-protocol-saj-r5-r6-c6.pdf`
 
-Goal: **read data from all supported inverters** with one API, plus the
+**read data from all supported inverters** with one API, plus the
 control writes your component already proves (power on/off, power limit, clock).
 
 **C6 is excluded on purpose** — Modbus control is known to cause issues on
