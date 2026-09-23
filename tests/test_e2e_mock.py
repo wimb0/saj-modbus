@@ -83,7 +83,7 @@ async def test_power_write_roundtrip() -> None:
     await inv.async_setup()
     assert await inv.async_set_power_on_off(False) is True
     await inv.async_update()
-    assert inv.power_on_off is False
+    assert inv.power.poweronoff is False
     assert await inv.async_set_power_limit(50.0) is True
     await inv.async_close()
 
